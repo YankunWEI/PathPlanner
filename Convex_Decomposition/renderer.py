@@ -107,12 +107,12 @@ def plot_finished_ellipsoid(obstacles, collision_free_points, collision_points, 
             # For MP4:
             # ani.save('ellipsoid_evolution.mp4', writer='ffmpeg', fps=5)
     else:
+        fig2,ax_finished=plot_obstacles(obstacles)
         ax_finished.scatter(collision_free_points[:, 0], collision_free_points[:, 1], color='blue', label='Collision-Free Points',alpha=0.3)
         ax_finished.scatter(collision_points[:, 0], collision_points[:, 1], color='red', label='Collision Points',alpha=0.3)
         ax_finished.set_title('Finished')
-        for idx,_ in enumerate(cov_matrix_list):
-            fig2,ax_finished=plot_obstacles(obstacles)  
-            draw_ellipsoid(cov_matrix_debug_list[idx][-1], center_debug_list[idx][-1], ax=ax_finished, n_std=1.0, edgecolor='green', facecolor='none', label='final ellipsoid')
+        for idx,_ in enumerate(cov_matrix_list): 
+            draw_ellipsoid(cov_matrix_list[idx], center_list[idx], ax=ax_finished, n_std=1.0, edgecolor='green', facecolor='none', label='final ellipsoid')
             ax_finished.scatter(seed_point_list[idx][0], seed_point_list[idx][1], color='blue',marker='x', label='seed point')
         ax_finished.legend(loc='lower left', bbox_to_anchor=(1.0, 0.0))
     plt.show()

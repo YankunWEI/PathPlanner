@@ -4,11 +4,20 @@ from scipy.special import gamma
 from time import time
 
 
-def mahalanobis_distances(centered_difference, inv_cov_matrix):
+def cal_mahalanobis_distances(centered_difference, inv_cov_matrix):
     """
     Compute the Mahalanobis distance for each point in centered_difference with the given inverse covariance matrix.
     """
-    return np.dot(np.dot(centered_difference, inv_cov_matrix), centered_difference.T)
+    # For a single point
+    if len(centered_difference.shape) == 1:
+        return np.dot(np.dot(centered_difference, inv_cov_matrix), centered_difference.T)
+    # For multiple points
+    assert len(centered_difference.shape) == 2
+    ans = np.zeros(centered_difference.shape[0])
+    for idx, direction in enumerate(centered_difference):
+        ans[idx] = np.dot(np.dot(direction, inv_cov_matrix), direction.T)
+    return ans
+
 
 def ellipsoid_from_points_iterative(collision_free_points, collision_points, seed_point, map_size, all_ellipsoids_center = [], max_iter=100, tol=1e-4, debug_mode=False):
     """
@@ -31,8 +40,9 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
     """
     t0 = time()
     # Create a KDTree for fast nearest neighbor queries
-    kd_tree = KDTree(collision_free_points)
-    _, nearest_indices = kd_tree.query(seed_point, k=30) # TODO: Add a parameter to control the number of nearest neighbors for intial ellipsoid
+    collision_kd_tree = KDTree(collision_points)
+    free_kd_tree = KDTree(collision_free_points)
+    _, nearest_indices = free_kd_tree.query(seed_point, k=30) # TODO: Add a parameter to control the number of nearest neighbors for intial ellipsoid
     # Initialize covariance matrix with nearest collision-free points
     cov_matrix = np.cov(collision_free_points[nearest_indices].T) * 4 # cov_matrix * n_std**2, control the size of intial ellipsoid
     center_point = np.mean(collision_free_points[nearest_indices], axis=0)
@@ -44,74 +54,63 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
     collision_points
     encountered_obstacles = set()
 
-    # 定义地图边界
+    # Define map bounds
     map_bounds = np.diag(map_size)
     num_dims = len(map_size)
     
-    t_init = time() - t0
-    t_repulsive = 0
-    t_attractive = 0
-    t_reduction_factor = 0
-    t_check = 0
+    if debug_mode:
+        # Record time
+        t_init = time() - t0
+        t_repulsive = 0
+        t_attractive = 0
+        t_reduction_factor = 0
+        t_check = 0
     
     for iteration in range(max_iter):
         t0 = time()
+        prev_cov_matrix = cov_matrix.copy()
         print(f"{iteration} iteration")
         # Initialize adjustment matrix
-        shrink_adjustment = np.zeros_like(cov_matrix)
         expand_adjustment = np.zeros_like(cov_matrix)
         center_shift = np.zeros_like(center_point)
         inv_cov_matrix = np.linalg.inv(cov_matrix)
+        eigvals, eigvecs = np.linalg.eigh(cov_matrix) # calculate axis vectors of ellipsoid
         
         # Prevent moving out of the seed point
         # If seed point outside the ellipsoid, directly move to seed point
-        normalized_P_distance = np.sqrt(np.dot((seed_point-center_point).T, np.dot(inv_cov_matrix, seed_point-center_point)))
-        P_distance_to_bound = (seed_point-center_point) * (1 - 1 / normalized_P_distance)
+        normalized_P_distance = np.sqrt(cal_mahalanobis_distances(seed_point-center_point, inv_cov_matrix))
+        P_distance_to_bound = (seed_point - center_point) * (1 - 1 / normalized_P_distance)
         if normalized_P_distance > 1:
             center_point += P_distance_to_bound
         t_init += time() - t0
             
         # Shrink to exclude collision points using Coulomb-like force
         t1 = time()
-        count = 0
-        for i, point in enumerate(collision_points):            
-            direction = (point - center_point)
-            normalized_distance = np.sqrt(np.dot(direction.T, np.dot(inv_cov_matrix, direction))) 
-            distance_to_bound = np.linalg.norm(direction) * (1 - 1 / normalized_distance)
-            if np.dot(direction.T, np.dot(inv_cov_matrix, direction)) < 1:
-                count += 1
-                distance = np.linalg.norm(direction)
-                direction /= distance
-                # Calculate the Coulomb-like force
-                F = abs(distance_to_bound)
-                #F = min(k / (distance ** 2 + 1e-9), 0.0001)
-                shrink_adjustment += F * np.outer(direction, direction)
-                #center_shift -= 0.1 * F * direction / distance  # Move center away from collision points
-                encountered_obstacles.add(i)
+        shrink_adjustment, count = calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_cov_matrix, encountered_obstacles, eigvals)
         print(f"内部有{count}个障碍点")
         t_repulsive += time() - t1
         
-        # 根据附近障碍点和地图边界削减引力
+        # calculate reduction factor according to encountered obstacles and map bounds
         t2 = time()
-        # 先记录距离向量
-        obs_distance_to_bound_vector_list = []
+        # record distance to obstacles
+        obs_distance_to_bound_vectors = []
         for obs_idx in encountered_obstacles:
             obs_point = collision_points[obs_idx]
             obs_direction = obs_point - center_point
             # 确定缩放倍率
-            obs_normalized_distance = np.sqrt(np.dot(obs_direction.T, np.dot(inv_cov_matrix, obs_direction)))
+            obs_normalized_distance = np.sqrt(cal_mahalanobis_distances(obs_direction, inv_cov_matrix))
             obs_distance_to_bound_vector = obs_direction * (1 - 1 / obs_normalized_distance)
-            obs_distance_to_bound_vector_list.append(obs_distance_to_bound_vector)
+            obs_distance_to_bound_vectors.append(obs_distance_to_bound_vector)
             
         for obs_point in all_ellipsoids_center:
             obs_direction = obs_point - center_point
             # 确定缩放倍率
-            obs_normalized_distance = np.sqrt(np.dot(obs_direction.T, np.dot(inv_cov_matrix, obs_direction)))
+            obs_normalized_distance = np.sqrt(cal_mahalanobis_distances(obs_direction, inv_cov_matrix))
             obs_distance_to_bound_vector = obs_direction * (1 - 1 / obs_normalized_distance)
-            obs_distance_to_bound_vector_list.append(obs_distance_to_bound_vector)
+            obs_distance_to_bound_vectors.append(obs_distance_to_bound_vector)
         
         # 基于边界的距离向量
-        eigvals, eigvecs = np.linalg.eigh(cov_matrix) #计算轴向量
+        # eigvals, eigvecs = np.linalg.eigh(cov_matrix) #计算轴向量
         max_axis_size = np.zeros((num_dims))
         for i, eigval in enumerate(eigvals):
             eigvecs[:, i] *= np.sqrt(eigval)
@@ -122,15 +121,15 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
             dist_to_lower_bound = max((center_point[dim_idx] - max_axis_size[dim_idx] - 0), 1e-9)
             dist_to_upper_bound = max((1 - center_point[dim_idx] - max_axis_size[dim_idx]), 1e-9)
 
-            obs_distance_to_bound_vector_list.append(- map_bound * dist_to_lower_bound)
-            obs_distance_to_bound_vector_list.append(map_bound * dist_to_upper_bound)
+            obs_distance_to_bound_vectors.append(- map_bound * dist_to_lower_bound)
+            obs_distance_to_bound_vectors.append(map_bound * dist_to_upper_bound)
         
         # 确定等于维度数量的削减方向，基于缩减方向，寻找最短的距离计算缩减系数
         reduction_directions = []
-        obs_distance_to_bound_vector_list = np.array(obs_distance_to_bound_vector_list) # num_obs * num_dims
-        obs_distance_to_bound = np.linalg.norm(obs_distance_to_bound_vector_list, axis=1) # num_obs * 1
-        remaining_vectors = np.array(obs_distance_to_bound_vector_list).copy()
-        remaining_vector_idxs = np.arange(len(obs_distance_to_bound_vector_list))
+        obs_distance_to_bound_vectors = np.array(obs_distance_to_bound_vectors) # num_obs * num_dims
+        obs_distance_to_bound = np.linalg.norm(obs_distance_to_bound_vectors, axis=1) # num_obs * 1
+        remaining_vectors = np.array(obs_distance_to_bound_vectors).copy()
+        remaining_vector_idxs = np.arange(len(obs_distance_to_bound_vectors))
         shift_scaling_factor = []
         adjustment_scaling_matrix = []
         for i in range(num_dims):
@@ -139,7 +138,7 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
             if i == 0:
                 min_index = np.argmin(obs_distance_to_bound)
                 min_positive_projection = obs_distance_to_bound[min_index]
-                new_direction = obs_distance_to_bound_vector_list[min_index] / obs_distance_to_bound[min_index]
+                new_direction = obs_distance_to_bound_vectors[min_index] / obs_distance_to_bound[min_index]
             else:
                 # Subtract the component in the direction of each selected direction
                 remaining_vectors -= np.outer(np.dot(remaining_vectors, new_direction), new_direction)
@@ -161,7 +160,7 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
             
             for idx in remaining_vector_idxs:
                 # 检查和当前缩减方向的角度
-                cos_similarity = np.dot(obs_distance_to_bound_vector_list[idx], new_direction) / obs_distance_to_bound[idx]
+                cos_similarity = np.dot(obs_distance_to_bound_vectors[idx], new_direction) / obs_distance_to_bound[idx]
                 if abs(cos_similarity) < 0.707:  # 45° < angle < 135°
                     near_orthogonal_vector_idx_list.append(idx)
                 elif cos_similarity < -0.707:    # angle > 135°
@@ -171,7 +170,7 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
                     elif min_negative_projection > negative_projections:
                         min_negative_projection = negative_projections
             
-            ellipse_radius = 1 / np.sqrt(np.dot(new_direction.T, np.dot(inv_cov_matrix, new_direction))) 
+            ellipse_radius = 1 / np.sqrt(cal_mahalanobis_distances(new_direction, inv_cov_matrix)) 
             positive_scaling_factor = min_positive_projection / (ellipse_radius + min_positive_projection)
             negative_scaling_factor = min_negative_projection / (ellipse_radius + min_negative_projection) 
             # positive_scaling_factor = min_positive_projection
@@ -191,12 +190,12 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
         # Expand to include free points outside the ellipsoid
         t3 = time()
         # Query nearest collision-free points outside the ellipsoid using KD-tree
-        distances, nearest_indices = kd_tree.query(center_point, k=len(collision_free_points))  # Initially query more points
+        distances, nearest_indices = free_kd_tree.query(center_point, k=len(collision_free_points))  # Initially query more points
         selected_nearest_points = []
         # Filter for points outside the ellipsoid
         for dist, idx in zip(distances, nearest_indices):
             point = collision_free_points[idx] - center_point
-            if np.dot(point.T, np.dot(inv_cov_matrix, point)) > 1:
+            if cal_mahalanobis_distances(point, inv_cov_matrix) > 1:
                 selected_nearest_points.append(point)
                 if len(selected_nearest_points) == 10: #最近的点数量
                     break
@@ -206,7 +205,7 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
             for point in selected_nearest_points:            
                 direction = (point)
                 distance = np.linalg.norm(direction)
-                normalized_distance = np.sqrt(np.dot(direction.T, np.dot(inv_cov_matrix, direction))) 
+                normalized_distance = np.sqrt(cal_mahalanobis_distances(direction, inv_cov_matrix))
                 distance_to_bound = distance * (1 - 1 / normalized_distance)
                 #print(normalized_distance, distance, distance_to_bound)
 
@@ -254,7 +253,7 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
         center_point += center_shift
         
         # Check for convergence by comparing covariance matrices
-        covariance_change = np.linalg.norm(cov_matrix - cov_matrix_debug[-1])
+        covariance_change = np.linalg.norm(cov_matrix - prev_cov_matrix)
         print(covariance_change, np.linalg.norm(center_shift))
         if covariance_change < tol and  np.linalg.norm(center_shift) < tol:
             print(f"Converged in {iteration+1} iterations.")
@@ -271,3 +270,25 @@ def ellipsoid_from_points_iterative(collision_free_points, collision_points, see
         return cov_matrix, center_point, cov_matrix_debug, center_debug
     
     return cov_matrix, center_point
+
+def calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_cov_matrix, encountered_obstacles, eigvals):
+    possible_indices = np.array(collision_kd_tree.query_ball_point(center_point, np.sqrt(eigvals).max()))
+    if len(possible_indices):
+        directions = collision_points[possible_indices] - center_point  # Nxdims
+        distances = np.linalg.norm(directions, axis=-1)
+        mahalanobis_distances = cal_mahalanobis_distances(directions, inv_cov_matrix)  # 1D array
+        valid_indices = np.arange(len(possible_indices))[mahalanobis_distances < 1]
+        directions /= distances[:, None]
+        # calculate adjustment matrix
+        normalized_distances = np.sqrt(mahalanobis_distances[valid_indices])
+        F_values = np.abs(distances[valid_indices] * (1 - 1 / normalized_distances))  # 1D array of forces
+        shrink_adjustment = np.zeros_like(inv_cov_matrix)
+        for idx, direction in enumerate(directions[valid_indices]):
+            outer_product = np.outer(direction, direction)  # dims * dims
+            shrink_adjustment += F_values[idx] * outer_product
+        count = len(valid_indices)
+        encountered_obstacles.update(possible_indices[valid_indices])
+    else:
+        shrink_adjustment = np.zeros_like(inv_cov_matrix)
+        count = 0
+    return shrink_adjustment, count
