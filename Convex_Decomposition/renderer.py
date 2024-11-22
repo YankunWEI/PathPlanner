@@ -44,8 +44,8 @@ def draw_ellipsoid(cov_matrix, center, ax=None, n_std=1.0, edgecolor='black', fa
     return ellipsoid_patch
 
 
-def plot_finished_ellipsoid(obstacles, collision_free_points, collision_points, cov_matrix_list, center_list, seed_point_list, cov_matrix_debug_list=None, center_debug_list=None, save_animation=False):
-    if cov_matrix_debug_list is not None and center_debug_list is not None:
+def plot_finished_ellipsoid(obstacles, collision_free_points, collision_points, cov_matrix_list, center_list, seed_point_list, cov_matrix_debug_list=[], center_debug_list=[], save_animation=False):
+    if cov_matrix_debug_list and center_debug_list:
         fig,ax_original=plot_obstacles(obstacles)  
         ax_original.scatter(collision_free_points[:, 0], collision_free_points[:, 1], color='blue', label='Collision-Free Points',alpha=0.3)
         ax_original.scatter(collision_points[:, 0], collision_points[:, 1], color='red', label='Collision Points',alpha=0.3)
@@ -112,7 +112,27 @@ def plot_finished_ellipsoid(obstacles, collision_free_points, collision_points, 
         ax_finished.scatter(collision_points[:, 0], collision_points[:, 1], color='red', label='Collision Points',alpha=0.3)
         ax_finished.set_title('Finished')
         for idx,_ in enumerate(cov_matrix_list): 
-            draw_ellipsoid(cov_matrix_list[idx], center_list[idx], ax=ax_finished, n_std=1.0, edgecolor='green', facecolor='none', label='final ellipsoid')
-            ax_finished.scatter(seed_point_list[idx][0], seed_point_list[idx][1], color='blue',marker='x', label='seed point')
+            if idx == 0:
+                label_final = 'final ellipsoid'
+                label_seed = 'seed point'
+            else:
+                label_final = None
+                label_seed = None
+            draw_ellipsoid(cov_matrix_list[idx], center_list[idx], ax=ax_finished, n_std=1.0, edgecolor='green', facecolor='none', label=label_final)
+            ax_finished.scatter(seed_point_list[idx][0], seed_point_list[idx][1], color='blue',marker='x', label=label_seed)
         ax_finished.legend(loc='lower left', bbox_to_anchor=(1.0, 0.0))
     plt.show()
+    
+def plot_growing_ellipsoid(obstacles, collision_free_points, collision_points, growing_cov_matrix_list, growing_center_list):
+    fig,ax_finished=plot_obstacles(obstacles)
+    ax_finished.scatter(collision_free_points[:, 0], collision_free_points[:, 1], color='blue', label='Collision-Free Points',alpha=0.3)
+    ax_finished.scatter(collision_points[:, 0], collision_points[:, 1], color='red', label='Collision Points',alpha=0.3)
+    
+    # Function to update each frame
+    def update(frame, growing_cov_matrix_list, growing_center_list):
+        # Clear previous ellipsoids for this frame
+        for idx, _ in enumerate(growing_cov_matrix_list[frame]):
+            draw_ellipsoid(growing_cov_matrix_list[frame][idx], growing_center_list[frame][idx], ax=ax_finished, n_std=1.0, edgecolor='green', facecolor='none')
+
+    ani = FuncAnimation(fig, update, frames=len(growing_cov_matrix_list), fargs=[growing_cov_matrix_list, growing_center_list])
+    ani.save('Convex_Decomposition/ellipsoid_tree.gif', writer=PillowWriter(fps=5))

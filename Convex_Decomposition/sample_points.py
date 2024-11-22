@@ -48,19 +48,20 @@ def sample_points(num_points, map_size, obstacles):
     :param obstacles: Dictionary of obstacles.
     :return: Tuple of two lists: (collision-free points, collision points).
     """
-    # Step 1: Sample N points uniformly on the map
-    sampled_points = np.random.uniform(low=0, high=map_size, size=(num_points, 2))
-    
-    # Step 2: Initialize lists to store collision-free and collision points
+    # Initialize lists to store collision-free and collision points
     collision_free_points = []
     collision_points = []
     
-    # Step 3: Check if each point is collision-free
-    for point in sampled_points:
-        if is_collision_free(point, obstacles):
-            collision_free_points.append(point)  # Free points
-        else:
-            collision_points.append(point)  # Points in collision
+    while len(collision_free_points) < num_points:
+        # Sample N points uniformly on the map
+        sampled_points = np.random.uniform(low=0, high=map_size, size=(num_points - len(collision_free_points), 2))
+        
+        # Check if each point is collision-free
+        for point in sampled_points:
+            if is_collision_free(point, obstacles):
+                collision_free_points.append(point)  # Free points
+            else:
+                collision_points.append(point)  # Points in collision
     
     # Convert lists to arrays for easier plotting
     collision_free_points = np.array(collision_free_points)
