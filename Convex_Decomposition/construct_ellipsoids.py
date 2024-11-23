@@ -1,3 +1,4 @@
+import heapq
 import random
 import numpy as np
 import time
@@ -249,11 +250,12 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
     
     # Add start and goal points to the collision-free points
     if goal_point is not None:
-        collision_free_points.append(goal_point)
+        collision_free_points = np.vstack((collision_free_points, goal_point))
         available_seed_points.add(len(collision_free_points) - 1)
         used_seed_points.add(len(collision_free_points) - 1)
     if start_point is not None:
-        collision_free_points.append(start_point)
+        
+        collision_free_points = np.vstack((collision_free_points, start_point))
         available_seed_points.add(len(collision_free_points) - 1)
         used_seed_points.add(len(collision_free_points) - 1)
 
@@ -312,6 +314,7 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
                         center_debug_list.append(center_debug)
                         growing_cov_matrix_list[-1].append(cov_matrix)
                         growing_center_list[-1].append(center)
+                    ellipsoids.append(free_point_indices)
                     candidate_seed_points.update(free_point_indices)
                     covered_points.update(free_point_indices)
                 except Exception as e:
@@ -330,12 +333,12 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
         
         candidate_seed_points.clear()
         if len(available_seed_points) == 0 and len(uncovered_points) > 0:
-            new_seed_point_idx = random.sample(uncovered_points, 1)[0]
-            available_seed_points.add(new_seed_point_idx)
-            used_seed_points.add(new_seed_point_idx)
+            new_seed_point_idx = np.random.choice(list(uncovered_points), max(int(len(uncovered_points)/10), 1))
+            available_seed_points.update(new_seed_point_idx)
+            used_seed_points.update(new_seed_point_idx)
         
     print(f"len(cov_matrix_list): {len(cov_matrix_list)}")
-    return cov_matrix_list, center_list, seed_points, cov_matrix_debug_list, center_debug_list, growing_cov_matrix_list, growing_center_list
+    return cov_matrix_list, center_list, seed_points, cov_matrix_debug_list, center_debug_list, growing_cov_matrix_list, growing_center_list, ellipsoids
 
 
 
@@ -347,12 +350,13 @@ if __name__ == "__main__":
     num_points = 100  # Number of points to sample
     num_ellipsoids = 1
     map_size = [1.0, 1.0]  # Define map size [dim_1_max ~ dim_n_max]
+    goal = np.array([0.9, 0.9])
     debug_mode = False
     only_shrink = True
 
     # Call the function to sample points and plot the result
     collision_free_points, collision_points = sample_points(num_points, map_size, obstacles)
-
+    t0 = time.time()
     t1 = time.time()
     # cov_matrix_list, center_list, seed_points, cov_matrix_debug_list, center_debug_list = construct_ellipsoid_rejection_sampling(
     #     num_ellipsoids, collision_free_points, collision_points, map_size, debug_mode=debug_mode, only_shrink=only_shrink
@@ -364,13 +368,51 @@ if __name__ == "__main__":
     #     collision_free_points, collision_points, map_size, debug_mode=debug_mode
     # )
     cov_matrix_list, center_list, seed_points, cov_matrix_debug_list, center_debug_list, \
-    growing_cov_matrix_list, growing_center_list = construct_ellipsoids_multithread_filtered_points(
-        collision_free_points, collision_points, map_size, debug_mode=debug_mode
+    growing_cov_matrix_list, growing_center_list, ellipsoids = construct_ellipsoids_multithread_filtered_points(
+        collision_free_points, collision_points, map_size, debug_mode=debug_mode, goal_point=goal
     )
-    print(f"Time elapsed: {time.time() - t1}")
+    print(f"Time ellipsoid: {time.time() - t1}")
+    collision_free_points = np.vstack((collision_free_points, goal))
+    t1 = time.time()
+    print(len(ellipsoids))
+    point_graph = [set() for i in range(len(collision_free_points))]
+    for ellipsoid in ellipsoids:
+        for point_idx in ellipsoid:
+            point_graph[point_idx].update(ellipsoid)
+    #print(point_graph)
+    print(f"Time construct graph: {time.time() - t1}")
+    
+    t1 = time.time()
+    heuristics = np.array([float('inf')] * len(collision_free_points))
+    heuristics[-1] = 0
+    priority_queue = [(0, -1)]
+    while priority_queue:
+        current_distance, current_idx = heapq.heappop(priority_queue)
+        # 如果当前距离已经不是最优解，跳过（可能已被更新）
+        if current_distance > heuristics[current_idx]:
+            continue
+        # 更新邻居的距离
+        for neighbor in point_graph[current_idx]:
+            distance_to_neighbor = np.linalg.norm(collision_free_points[current_idx] - collision_free_points[neighbor])
+            new_distance = current_distance + distance_to_neighbor
+
+            if new_distance < heuristics[neighbor]:
+                heuristics[neighbor] = new_distance
+                heapq.heappush(priority_queue, (new_distance, neighbor))
+    print(heuristics)
+    calculated = heuristics != float('inf')
+    for i in range(len(heuristics)):
+        if not calculated[i]:
+            nearest = np.argmin(np.linalg.norm(collision_free_points[i] - collision_free_points[j]) for j in collision_free_points[calculated])
+            heuristics[i] = heuristics[nearest] + np.linalg.norm(collision_free_points[i] - collision_free_points[nearest]) 
+    print((heuristics == float('inf')).any())
+    print(f"Time heuristic: {time.time() - t1}")
+
+    print(f"Time elapsed: {time.time() - t0}")
     plot_finished_ellipsoid(obstacles, collision_free_points, collision_points, 
                             cov_matrix_list, center_list, seed_points, 
-                            cov_matrix_debug_list=cov_matrix_debug_list, center_debug_list=center_debug_list, save_animation=True)
+                            cov_matrix_debug_list=cov_matrix_debug_list, 
+                            center_debug_list=center_debug_list, save_animation=True)
 
     # plot_growing_ellipsoid(obstacles, collision_free_points, collision_points, 
     #                         growing_cov_matrix_list, growing_center_list)
