@@ -256,8 +256,8 @@ def ellipsoid_from_points_iterative(collision_free_points, free_kd_tree, collisi
             t3 = time()
             possible_free_indices = np.array(free_kd_tree.query_ball_point(center_point, axis_lengths.max()))
             Free_directions = collision_free_points[possible_free_indices] - center_point  # Nxdims
-            mahalanobis_distances = cal_mahalanobis_distances_square(Free_directions, inv_cov_matrix)  # 1D array
-            valid_indices = np.arange(len(possible_free_indices))[mahalanobis_distances < 1]
+            mahalanobis_distances_square = cal_mahalanobis_distances_square(Free_directions, inv_cov_matrix)  # 1D array
+            valid_indices = np.arange(len(possible_free_indices))[mahalanobis_distances_square < 1]
             free_point_indices = possible_free_indices[valid_indices]
             t_get_free += time() - t3
             break
@@ -295,8 +295,9 @@ def ellipsoid_from_points_iterative_only_shrink(collision_free_points, free_kd_t
     # Initialize covariance matrix with nearest collision-free points
     # center_point = np.mean(collision_free_points[nearest_indices], axis=0)
     # center_point = collision_free_points[free_kd_tree.query(center_point, k=1)[1]]
-    center_point = seed_point
+    center_point = seed_point.copy()
     cov_matrix = np.cov((collision_free_points[nearest_indices] - center_point).T) * 4 # cov_matrix * n_std**2, control the size of intial ellipsoid
+    inv_cov_matrix = np.linalg.inv(cov_matrix)
     cov_matrix_debug = []
     center_debug = []
     free_point_indices = []
@@ -315,42 +316,44 @@ def ellipsoid_from_points_iterative_only_shrink(collision_free_points, free_kd_t
     t_check = 0
     t_get_free = 0
     
+    volume_factor = (np.pi ** (num_dims / 2)) / gamma((num_dims / 2) + 1)
+    
     for iteration in range(max_iter):
         t0 = time()
-        prev_cov_matrix = cov_matrix.copy()
+        #prev_cov_matrix = cov_matrix.copy()
+        #inv_cov_matrix = np.linalg.inv(cov_matrix)
         if debug_mode:
             print(f"{iteration} iteration")
         # Initialize adjustment matrix
-        inv_cov_matrix = np.linalg.inv(cov_matrix)
         eigvals, eigvecs = np.linalg.eigh(cov_matrix) # calculate axis vectors of ellipsoid
         axis_lengths = np.sqrt(eigvals)
         
         # Prevent moving out of the seed point
         # If seed point outside the ellipsoid, directly move to seed point
-        seed_mahalanobis_distances = cal_mahalanobis_distances_square(seed_point-center_point, inv_cov_matrix)
-        if seed_mahalanobis_distances > 1:
-            seed_distance_to_bound = (seed_point - center_point) * (1 - 1 / np.sqrt(seed_mahalanobis_distances))
+        seed_mahalanobis_distances_square = cal_mahalanobis_distances_square(seed_point-center_point, inv_cov_matrix)
+        if seed_mahalanobis_distances_square > 1:
+            print("seed point outside the ellipsoid, directly move to seed point")
+            seed_distance_to_bound = (seed_point - center_point) * (1 - 1 / np.sqrt(seed_mahalanobis_distances_square) + 1e-6)
+            print(seed_mahalanobis_distances_square, seed_point - center_point, seed_distance_to_bound)
             center_point += seed_distance_to_bound
+        
         
         t_init += time() - t0
             
-        # Shrink to exclude collision points using Coulomb-like force
+        # Shrink to exclude collision points using force
         t1 = time()
-        shrink_adjustment, center_shift, count, last_collision_points = calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_cov_matrix, axis_lengths, 
-                                                       encountered_obstacles, last_collision_points, only_shrink=True)
+        volume = volume_factor * np.prod(axis_lengths)
+        adjust_scale = -min(min(eigvals), volume / 20) # negative scale for shrink
+        #adjust_scale = -volume / 1
+        shrink_adjustment, new_inv_cov_adjustment, center_shift, count, last_collision_points = calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_cov_matrix, axis_lengths, 
+                                                       encountered_obstacles, last_collision_points, only_shrink=True, adjust_scale=adjust_scale)
         if debug_mode:
             print(f"内部有{count}个障碍点")
         
         # Normalize adjustments
         #print("shrink",shrink_adjustment,'\n', shrink_adjustment /np.sqrt(np.trace(shrink_adjustment)))
-        volume = (np.pi ** (num_dims / 2)) / gamma((num_dims / 2) + 1) * np.prod(axis_lengths)
-        shrink_adjustment = shrink_adjustment / (np.trace(shrink_adjustment) + 1e-9) * volume / 25
-        center_shift = center_shift / (np.linalg.norm(center_shift) + 1e-9) / 1000
-        
-        if debug_mode:
-            print("shrink_adjustment:", shrink_adjustment)
-        cov_matrix -= shrink_adjustment
-        center_point += center_shift
+        #shrink_adjustment = shrink_adjustment
+        center_shift = center_shift / 500 
         
         t_repulsive += time() - t1
         
@@ -362,18 +365,24 @@ def ellipsoid_from_points_iterative_only_shrink(collision_free_points, free_kd_t
             t3 = time()
             possible_free_indices = np.array(free_kd_tree.query_ball_point(center_point, axis_lengths.max()))
             Free_directions = collision_free_points[possible_free_indices] - center_point  # Nxdims
-            mahalanobis_distances = cal_mahalanobis_distances_square(Free_directions, inv_cov_matrix)  # 1D array
-            valid_indices = np.arange(len(possible_free_indices))[mahalanobis_distances < 1]
+            mahalanobis_distances_square = cal_mahalanobis_distances_square(Free_directions, inv_cov_matrix)  # 1D array
+            valid_indices = np.arange(len(possible_free_indices))[mahalanobis_distances_square < 1]
             free_point_indices = possible_free_indices[valid_indices]
             t_get_free += time() - t3
             break
+        t_check += time() - t2
         
         if debug_mode:    
             # Update debug lists
             cov_matrix_debug.append(cov_matrix.copy())
             center_debug.append(center_point.copy())
-        t_check += time() - t2
         
+        # Update covariance matrix
+        if debug_mode:
+            print("shrink_adjustment:", shrink_adjustment)
+        cov_matrix += shrink_adjustment
+        inv_cov_matrix = new_inv_cov_adjustment
+        center_point += center_shift
 
     if debug_mode:
             print("t_init:", t_init, "t_repulsive:", t_repulsive, "t_check:", t_check, "t_get_free:", t_get_free)
@@ -382,7 +391,7 @@ def ellipsoid_from_points_iterative_only_shrink(collision_free_points, free_kd_t
 
 
 def calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_cov_matrix, axis_lengths, 
-                        encountered_obstacles, last_collision_points=np.empty(0), only_shrink=False, only_nearest_obstacle=True):
+                        encountered_obstacles, last_collision_points=np.empty(0), only_shrink=False, only_nearest_obstacle=True, adjust_scale=1.0):
     if len(last_collision_points):
         possible_indices = np.array(last_collision_points)
     else:
@@ -392,8 +401,8 @@ def calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_c
         # Find points inside the ellipsoid
         directions = collision_points[possible_indices] - center_point  # Nxdims
         distances = np.linalg.norm(directions, axis=-1)
-        mahalanobis_distances = cal_mahalanobis_distances_square(directions, inv_cov_matrix)  # 1D array
-        valid_indices = np.arange(len(possible_indices))[mahalanobis_distances < 1]
+        mahalanobis_distances_square = cal_mahalanobis_distances_square(directions, inv_cov_matrix)  # 1D array
+        valid_indices = np.arange(len(possible_indices))[mahalanobis_distances_square < 1]
         
         count = len(valid_indices)
         encountered_obstacles.update(possible_indices[valid_indices])
@@ -401,35 +410,50 @@ def calculate_repulsive(collision_points, collision_kd_tree, center_point, inv_c
         
         if len(valid_indices):
             if only_nearest_obstacle:
-                valid_indices = valid_indices[np.argmin(mahalanobis_distances[valid_indices])]
+                directions /= distances[:, None]
+                valid_indices = valid_indices[np.argmin(mahalanobis_distances_square[valid_indices])]
+                # one obstacle, use unit direction
                 shrink_adjustment = np.outer(directions[valid_indices], directions[valid_indices])
                 if only_shrink:
+                    shrink_adjustment = shrink_adjustment * adjust_scale
+                    new_inv_cov_matrix = inv_cov_matrix - adjust_scale * inv_cov_matrix @ np.outer(directions[valid_indices], directions[valid_indices]) @ inv_cov_matrix  \
+                                            / (1 + adjust_scale * directions[valid_indices] @ inv_cov_matrix @ directions[valid_indices].T)    # Sherman-Morrison公式
                     center_shift = -directions[valid_indices] 
             else:
                 directions /= distances[:, None]
                 # Calculate adjustment matrix
-                normalized_distances = np.sqrt(mahalanobis_distances[valid_indices])
-                F_values = np.abs(distances[valid_indices] * (1 - 1 / normalized_distances))  # 1D array of forces
+                mahalanobis_distances = np.sqrt(mahalanobis_distances_square[valid_indices])
+                F_values = np.abs(distances[valid_indices] * (1 - 1 / mahalanobis_distances))  # 1D array of forces
                 shrink_adjustment = np.zeros_like(inv_cov_matrix)
+                new_inv_cov_matrix = inv_cov_matrix.copy()
                 center_shift = np.zeros_like(center_point)
                 for idx, direction in enumerate(directions[valid_indices]):
                     outer_product = np.outer(direction, direction)  # dims * dims
                     shrink_adjustment += F_values[idx] * outer_product
                     if only_shrink:
+                        new_inv_cov_matrix += -adjust_scale * F_values[idx] / np.sum(F_values) * new_inv_cov_matrix @ np.outer(direction, direction) @ new_inv_cov_matrix  \
+                                            / (1 + adjust_scale * F_values[idx] / np.sum(F_values) * direction @ new_inv_cov_matrix @ direction.T)
                         center_shift -= F_values[idx] * direction
+                # normalize with force values
+                shrink_adjustment = shrink_adjustment / np.sum(F_values)
+                if only_shrink:
+                    shrink_adjustment = shrink_adjustment * adjust_scale
+                    center_shift /= np.sum(F_values)
         else:
             shrink_adjustment = np.zeros_like(inv_cov_matrix)
+            new_inv_cov_matrix = inv_cov_matrix.copy()
             count = 0
             new_collision_points = np.empty(0)
             if only_shrink:
                 center_shift = np.zeros_like(center_point)
     else:
         shrink_adjustment = np.zeros_like(inv_cov_matrix)
+        new_inv_cov_matrix = inv_cov_matrix.copy()
         count = 0
         new_collision_points = np.empty(0)
         if only_shrink:
             center_shift = np.zeros_like(center_point)
     if only_shrink:
-        return shrink_adjustment, center_shift, count, new_collision_points
+        return shrink_adjustment, new_inv_cov_matrix, center_shift, count, new_collision_points
     return shrink_adjustment, count, new_collision_points
 

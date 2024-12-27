@@ -2,12 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Define multiple rectangular obstacles to create a puzzle-like map
-obstacles = {
+obstacles_0 = {
     'rectangle1': {
         'type': 'rectangle',
         'bottom_left': np.array([0.1, 0.1]),
         'width': 0.2,
-        'height': 0.3
+        'height': 0.35
     },
     'rectangle2': {
         'type': 'rectangle',
@@ -25,7 +25,7 @@ obstacles = {
         'type': 'rectangle',
         'bottom_left': np.array([0.2, 0.5]),
         'width': 0.4,
-        'height': 0.15
+        'height': 0.2
     },
     'rectangle5': {
         'type': 'rectangle',
@@ -35,9 +35,25 @@ obstacles = {
     }
 }
 
+obstacles_1 = {
+    'rectangle1': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.4, 0.0]),
+        'width': 0.2,
+        'height': 0.49
+    },
+    'rectangle2': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.4, 0.51]),
+        'width': 0.2,
+        'height': 0.49
+    }
+}
+
 # Function to plot obstacles on the map
-def plot_obstacles(obstacles):
-    fig, ax = plt.subplots()
+def plot_obstacles(obstacles, fig = None, ax=None):
+    if fig is None or ax is None:
+        fig, ax = plt.subplots()
     
     for name, obstacle in obstacles.items():
         if obstacle['type'] == 'rectangle':
@@ -45,14 +61,14 @@ def plot_obstacles(obstacles):
             rect = plt.Rectangle(obstacle['bottom_left'], 
                                  obstacle['width'], 
                                  obstacle['height'], 
-                                 color='grey', alpha=0.5)
+                                 color='grey', alpha=1.0)
             ax.add_patch(rect)
             
         elif obstacle['type'] == 'circle':
             # Plot circle
             circle = plt.Circle(obstacle['center'], 
                                 obstacle['radius'], 
-                                color='grey', alpha=0.5)
+                                color='grey', alpha=1.0)
             ax.add_patch(circle)
     
     # Set plot limits and labels

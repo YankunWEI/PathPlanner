@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from create_map import obstacles, plot_obstacles
+from create_map import obstacles_0, plot_obstacles
 
 
 # Function to evaluate if a point is collision-free

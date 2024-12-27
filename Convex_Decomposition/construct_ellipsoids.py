@@ -259,7 +259,8 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
         available_seed_points.add(len(collision_free_points) - 1)
         used_seed_points.add(len(collision_free_points) - 1)
 
-    seed_point_idices = np.random.choice(len(collision_free_points), int(len(collision_free_points) / 10))
+    # seed_point_idices = np.random.choice(len(collision_free_points), int(len(collision_free_points) / 10))
+    seed_point_idices = np.random.choice(len(collision_free_points), 10)
     
     available_seed_points.update(seed_point_idices)
     used_seed_points.update(seed_point_idices)
@@ -268,6 +269,7 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
     collision_kd_tree = KDTree(collision_points)
     free_kd_tree = KDTree(collision_free_points)
     num_dims = len(map_size)
+    #factor = (len(collision_free_points) + len(collision_points)) / len(collision_free_points)
     k_nearest = int(1.2 * np.e * (1 - 1 / num_dims) * np.log(len(collision_free_points)))
 
     
@@ -285,7 +287,7 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
         else:
             # Check if all nearest points of the seed point are covered
             _, nearest_indices = free_kd_tree.query(collision_free_points[seed_point_idx], k=k_nearest*2) 
-            valid = seed_point_idx in uncovered_points or (np.sum([idx in covered_points for idx in nearest_indices]) < len(nearest_indices) * 0.6)
+            valid = seed_point_idx in uncovered_points or (np.sum([idx in covered_points for idx in nearest_indices]) < len(nearest_indices) * 0.5)
             if valid:
                 available_seed_points.add(seed_point_idx)
             used_seed_points.add(seed_point_idx)
@@ -333,7 +335,8 @@ def construct_ellipsoids_multithread_filtered_points(collision_free_points, coll
         
         candidate_seed_points.clear()
         if len(available_seed_points) == 0 and len(uncovered_points) > 0:
-            new_seed_point_idx = np.random.choice(list(uncovered_points), max(int(len(uncovered_points)/10), 1))
+            #new_seed_point_idx = np.random.choice(list(uncovered_points), max(int(len(uncovered_points)/10), 1))
+            new_seed_point_idx = np.random.choice(list(uncovered_points), min(max(int(len(uncovered_points)/10), 1), 10))
             available_seed_points.update(new_seed_point_idx)
             used_seed_points.update(new_seed_point_idx)
         
@@ -401,11 +404,15 @@ if __name__ == "__main__":
                 heapq.heappush(priority_queue, (new_distance, neighbor))
     print(heuristics)
     calculated = heuristics != float('inf')
+    #print(calculated)
     for i in range(len(heuristics)):
         if not calculated[i]:
             nearest = np.argmin(np.linalg.norm(collision_free_points[i] - collision_free_points[j]) for j in collision_free_points[calculated])
-            heuristics[i] = heuristics[nearest] + np.linalg.norm(collision_free_points[i] - collision_free_points[nearest]) 
+            #print(i, nearest, heuristics[nearest])
+            heuristics[i] = heuristics[calculated][nearest] + np.linalg.norm(collision_free_points[i] - collision_free_points[calculated][nearest]) 
     print((heuristics == float('inf')).any())
+    
+    #print(heuristics)
     print(f"Time heuristic: {time.time() - t1}")
 
     print(f"Time elapsed: {time.time() - t0}")

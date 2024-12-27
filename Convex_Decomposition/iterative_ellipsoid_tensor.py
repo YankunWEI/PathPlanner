@@ -156,9 +156,9 @@ def ellipsoid_from_points_iterative_only_shrink_batch_tensor(collision_free_poin
         # Normalize adjustments
         #print("shrink",shrink_adjustment,'\n', shrink_adjustment /np.sqrt(np.trace(shrink_adjustment)))
         volume = (torch.pi ** (num_dims / 2)) / gamma((num_dims / 2) + 1) * torch.sqrt(torch.linalg.det(cov_matrix)) # [batch_size]
-        trace = shrink_adjustment.diagonal(offset=0, dim1=-2, dim2=-1).sum(dim=-1) # [batch_size]
-        shrink_adjustment = shrink_adjustment / (trace.unsqueeze(-1).unsqueeze(-1) + 1e-9) * volume.unsqueeze(-1).unsqueeze(-1) / 25
-        center_shift = center_shift / (torch.norm(center_shift, dim=-1).unsqueeze(-1) + 1e-9) / 1000
+        #trace = shrink_adjustment.diagonal(offset=0, dim1=-2, dim2=-1).sum(dim=-1) # [batch_size]
+        shrink_adjustment = shrink_adjustment / (F_values.sum(dim=1).unsqueeze(-1).unsqueeze(-1) + 1e-9) * volume.unsqueeze(-1).unsqueeze(-1) / 25
+        center_shift = center_shift / (F_values.sum(dim=1).unsqueeze(-1) + 1e-9) / 500
         
         if debug_mode:
             print("shrink_adjustment:", shrink_adjustment)
