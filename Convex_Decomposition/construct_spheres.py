@@ -9,7 +9,7 @@ from scipy.spatial import KDTree
 from scipy.special import softmax
 from concurrent.futures import ThreadPoolExecutor
 
-from create_map import obstacles_0, obstacles_1, plot_obstacles
+from create_map import obstacles_0, obstacles_1, plot_obstacles, obstacles_2
 from sample_points import sample_points, is_collision_free
 from iterative_ellipsoid import ellipsoid_from_points_iterative, ellipsoid_from_points_iterative_only_shrink
 from renderer import plot_finished_ellipsoid, plot_circles, plot_new_samples
@@ -40,8 +40,8 @@ def plot_heatmap(obstacles, collision_free_points, collision_points, center_list
     x_vals = np.linspace(0.0, 1.0, 400)
     y_vals = np.linspace(0.0, 1.0, 400)
     X, Y = np.meshgrid(x_vals, y_vals)
-    # probabilities = (weight_list) / np.sum(weight_list)
-    probabilities = softmax(weight_list)
+    probabilities = (weight_list) / np.sum(weight_list)
+    # probabilities = softmax(weight_list)
     print(weight_list)
     print(probabilities)
     print(np.sum(probabilities))
@@ -168,7 +168,8 @@ def calculate_weight_gaussian(center, radius, shell_radius, obsctacle_neighbors,
     free = 0
     collision = 0
     k = len(inside_list) + len(obsctacle_neighbors) + len(shell_list)
-    r = np.sqrt(k / ((len(collision_free_points) + len(collision_points)) * np.pi))
+    # r = np.sqrt(k / ((len(collision_free_points) + len(collision_points)) * np.pi))
+    r = radius
     
     for point in inside_list:
         nearest_obstacle_dist = collision_kd_tree.query(collision_free_points[point], 1)[0]
@@ -194,7 +195,7 @@ def calculate_weight_gaussian(center, radius, shell_radius, obsctacle_neighbors,
     free /= total
     collision /= total
     
-    weight = -(free * np.log(free) + collision * np.log(collision + 1e-10))
+    weight = -(free * np.log(free) + collision * np.log(max(collision, 1e-10)))
         
     return weight
 
@@ -202,7 +203,7 @@ def calculate_weight_simple(center, radius, shell_radius, obsctacle_neighbors, i
     
     prob = len(inside_list) / (len(inside_list) + (len(obsctacle_neighbors) / (len(obsctacle_neighbors) + len(shell_list) + 1e-10)))
     
-    weight = -(prob * np.log(prob + 1e-10) + (1 - prob) * np.log(1 - prob + 1e-10))
+    weight = -(prob * np.log(max(prob, 1e-10)) + (1 - prob) * np.log(max(1 - prob, 1e-10)))
         
     return weight
 
@@ -210,7 +211,7 @@ def calculate_weight_simple_gaussian(center, radius, shell_radius, obsctacle_nei
     
     prob = (len(inside_list) * 0.399 + len(shell_list) * 0.054) / (len(inside_list) * 0.399 + len(obsctacle_neighbors) * 0.054 + len(shell_list) * 0.054)
     
-    weight = -(prob * np.log(prob + 1e-10) + (1 - prob) * np.log(1 - prob + 1e-10))
+    weight = -(prob * np.log(max(prob, 1e-10)) + (1 - prob) * np.log(max(1 - prob, 1e-10)))
         
     return weight
 
@@ -228,9 +229,11 @@ def construct_spheres(collision_free_points, collision_points, map_size):
     
     collision_kd_tree = KDTree(collision_points)
     free_kd_tree = KDTree(collision_free_points)
+    total_point = np.vstack((collision_free_points, collision_points))
+    total_kd_tree = KDTree(total_point)
     num_dims = len(map_size)
     k_nearest = int(0.4 * np.e * (1 + 1 / num_dims) * np.log(len(collision_points)))
-    k_free_nearest = int(1.0 * np.e * (1 + 1 / num_dims) * np.log(len(collision_free_points)))
+    k_free_nearest = int(0.5 * np.e * (1 + 1 / num_dims) * np.log(len(collision_free_points)+len(collision_points)))
     
     available_points = np.arange(len(collision_free_points))
     uncovered_points = set(available_points)
@@ -239,122 +242,159 @@ def construct_spheres(collision_free_points, collision_points, map_size):
         points_covered_count[idx] = 0
     np.random.shuffle(available_points)
     
+    uncovered_near_obstacle_points = set()
+    for obstacle in collision_points:
+        nearest_points = free_kd_tree.query(obstacle, 1)[1] 
+        # uncovered_near_obstacle_points.add(nearest_points)
+    
+    # while len(uncovered_near_obstacle_points) > 0:
+    #     idx = uncovered_near_obstacle_points.pop()
+    #     center = collision_free_points[idx]
+    #     center = collision_free_points[idx]
+    #     radius = 0
+    #     total_neighbors = total_kd_tree.query(center, k_free_nearest)[1]
+    #     inside_list = []
+    #     shell_list = []
+    #     obstalce_list = []
+    #     inside_count = 0
+    #     shell_count = 0
+    #     obstacle_count = 0
+    #     first_obstacle = False
+    #     for point in total_neighbors:
+    #         if not first_obstacle:
+    #             if total_point[point] in collision_free_points:
+    #                 index = np.where( (collision_free_points == (total_point[point])).all(axis = 1))
+    #                 uncovered_near_obstacle_points.discard(index[0][0])
+    #                 points_covered_count[index[0][0]] += 1
+    #                 uncovered_points.discard(index[0][0])
+    #                 inside_count += 1
+    #                 inside_list.append(index[0][0])
+    #             else:
+    #                 first_obstacle = True
+    #                 index = np.where( (collision_points == (total_point[point])).all(axis = 1))
+    #                 radius = np.linalg.norm(total_point[point] - center)
+    #                 obstalce_list.append(index[0][0])
+    #                 obstacle_count += 1
+    #         else:
+    #             if total_point[point] in collision_free_points:
+    #                 index = np.where( (collision_free_points == (total_point[point])).all(axis = 1))
+    #                 shell_count += 1
+    #                 shell_list.append(index[0][0])
+    #             else:
+    #                 index = np.where( (collision_points == (total_point[point])).all(axis = 1))
+    #                 obstacle_count += 1
+    #                 obstalce_list.append(index[0][0])
+    #     shell_radius = np.linalg.norm(total_point[total_neighbors[-1]] - center)
+    #     if radius > 0:
+    #         deviation = np.mean(collision_points[obstalce_list] - center, axis=0)
+    #         deviation = deviation / np.linalg.norm(deviation) * 0.7 * radius
+    #         deviation = np.array([0, 0])
+    #     else:
+    #         deviation = np.array([0, 0])
+    #         radius = shell_radius
+        
+    #     center_list.append(idx)
+    #     radius_list.append(radius)
+    #     deviation_list.append(deviation)
+    #     shell_radius_list.append(shell_radius)
+    #     inside_list_list.append(inside_list)
+    #     weight_simple = calculate_weight_simple(center, radius, shell_radius, obstalce_list, inside_list, shell_list)
+    #     weight_gaussian = calculate_weight_gaussian(center, radius, shell_radius, obstalce_list, inside_list, shell_list, collision_free_points, collision_points, free_kd_tree, collision_kd_tree)
+    #     weight_simple_gaussian = calculate_weight_simple_gaussian(center, radius, shell_radius, obstalce_list, inside_list, shell_list)
+    #     weight_simple_list.append(weight_simple)
+    #     weight_gaussian_list.append(weight_gaussian)
+    #     weight_simple_gaussian_list.append(weight_simple_gaussian)
+    
+    # not_touch_center_num = len(center_list)
+    
     while len(uncovered_points) > 0:
         available_points = np.array(list(uncovered_points))
         np.random.shuffle(available_points)
         for idx in available_points:
             if points_covered_count[idx] == 0:
                 center = collision_free_points[idx]
-                obstacles_neighbors = collision_kd_tree.query(center, k_nearest)[1]
-                free_distances,free_neighbors = free_kd_tree.query(center, k_free_nearest)
-                radius = np.linalg.norm(collision_points[obstacles_neighbors[0]] - center)
-                radius = min(radius, np.sqrt(2)/16)
-                deviation = np.mean(collision_points[obstacles_neighbors] - center, axis=0)
-                deviation = deviation / np.linalg.norm(deviation) * 0.7 * radius
-                
-                shell_radius = np.linalg.norm(collision_points[obstacles_neighbors[-1]] - center)
-                
-                inside_shell_points = free_kd_tree.query_ball_point(center, shell_radius)
+                radius = 0
+                total_neighbors = total_kd_tree.query(center, k_free_nearest)[1]
                 inside_list = []
                 shell_list = []
+                obstalce_list = []
                 inside_count = 0
                 shell_count = 0
-                for point in inside_shell_points:
-                    if np.linalg.norm(collision_free_points[point] - center) <=  radius:
-                        inside_count += 1
-                        points_covered_count[point] += 1
-                        if points_covered_count[point] > 0:
-                            uncovered_points.discard(point)
-                        if point in center_list:
-                            center_exist_idx = center_list.index(point)
-                            for inside_point in inside_list_list[center_exist_idx]:
-                                points_covered_count[inside_point] -= 1
-                                if points_covered_count[inside_point] == 0:
-                                    uncovered_points.add(inside_point)
-                            center_list.pop(center_exist_idx)
-                            radius_list.pop(center_exist_idx)
-                            deviation_list.pop(center_exist_idx)
-                            inside_list_list.pop(center_exist_idx)
-                            shell_radius_list.pop(center_exist_idx)
-                            weight_simple_list.pop(center_exist_idx)
-                            weight_gaussian_list.pop(center_exist_idx)
-                            weight_simple_gaussian_list.pop(center_exist_idx)
-                        
-                        inside_list.append(point)
+                obstacle_count = 0
+                first_obstacle = False
+                for point in total_neighbors:
+                    if not first_obstacle:
+                        if total_point[point] in collision_free_points:
+                            index = np.where( (collision_free_points == (total_point[point])).all(axis = 1))
+                            points_covered_count[index[0][0]] += 1
+                            uncovered_points.discard(index[0][0])
+                            if point in center_list:
+                                    center_exist_idx = center_list.index(point)
+                                    if center_exist_idx >= not_touch_center_num:
+                                        for inside_point in inside_list_list[center_exist_idx]:
+                                            points_covered_count[inside_point] -= 1
+                                            if points_covered_count[inside_point] == 0:
+                                                uncovered_points.add(inside_point)
+                                        center_list.pop(center_exist_idx)
+                                        radius_list.pop(center_exist_idx)
+                                        deviation_list.pop(center_exist_idx)
+                                        inside_list_list.pop(center_exist_idx)
+                                        shell_radius_list.pop(center_exist_idx)
+                                        weight_simple_list.pop(center_exist_idx)
+                                        weight_gaussian_list.pop(center_exist_idx)
+                                        weight_simple_gaussian_list.pop(center_exist_idx)
+                            inside_count += 1
+                            inside_list.append(index[0][0])
+                        else:
+                            first_obstacle = True
+                            index = np.where( (collision_points == (total_point[point])).all(axis = 1))
+                            radius = np.linalg.norm(total_point[point] - center)
+                            obstalce_list.append(index[0][0])
+                            obstacle_count += 1
                     else:
-                        shell_count += 1
-                        shell_list.append(point)
+                        if total_point[point] in collision_free_points:
+                            index = np.where( (collision_free_points == (total_point[point])).all(axis = 1))
+                            shell_count += 1
+                            shell_list.append(index[0][0])
+                        else:
+                            index = np.where( (collision_points == (total_point[point])).all(axis = 1))
+                            obstacle_count += 1
+                            obstalce_list.append(index[0][0])
+                shell_radius = np.linalg.norm(total_point[total_neighbors[-1]] - center)
+                if radius > 0:
+                    deviation = np.mean(collision_points[obstalce_list] - center, axis=0)
+                    deviation = deviation / np.linalg.norm(deviation) * 0.7 * radius
+                    deviation = np.array([0, 0])
+                else:
+                    deviation = np.array([0, 0])
+                    radius = shell_radius
+                    
                 
                 center_list.append(idx)
                 radius_list.append(radius)
                 deviation_list.append(deviation)
                 shell_radius_list.append(shell_radius)
                 inside_list_list.append(inside_list)
-                weight_simple = calculate_weight_simple(center, radius, shell_radius, obstacles_neighbors, inside_list, shell_list)
-                weight_gaussian = calculate_weight_gaussian(center, radius, shell_radius, obstacles_neighbors, inside_list, shell_list, collision_free_points, collision_points, free_kd_tree, collision_kd_tree)
-                weight_simple_gaussian = calculate_weight_simple_gaussian(center, radius, shell_radius, obstacles_neighbors, inside_list, shell_list)
+                weight_simple = calculate_weight_simple(center, radius, shell_radius, obstalce_list, inside_list, shell_list)
+                weight_gaussian = calculate_weight_gaussian(center, radius, shell_radius, obstalce_list, inside_list, shell_list, collision_free_points, collision_points, free_kd_tree, collision_kd_tree)
+                weight_simple_gaussian = calculate_weight_simple_gaussian(center, radius, shell_radius, obstalce_list, inside_list, shell_list)
                 weight_simple_list.append(weight_simple)
                 weight_gaussian_list.append(weight_gaussian)
                 weight_simple_gaussian_list.append(weight_simple_gaussian)
-
+ 
+                            
+                                          
+                
                     
-    # available_points = set()
-    # for obstacle in collision_points:
-    #     nearest_points = free_kd_tree.query(obstacle, 1)[1] 
-    #     available_points.add(nearest_points)
     
-    # while len(available_points) > 0:
-    #     idx = available_points.pop()
-    #     center = collision_free_points[idx]
-    #     obstacles_neighbors = collision_kd_tree.query(center, k_nearest)[1]
-    #     free_distances,free_neighbors = free_kd_tree.query(center, k_free_nearest)
-    #     radius = np.linalg.norm(collision_points[obstacles_neighbors[0]] - center)
-        
-    #     shell_radius = np.linalg.norm(collision_points[obstacles_neighbors[-1]] - center)
-        
-    #     inside_shell_points = free_kd_tree.query_ball_point(center, shell_radius)
-    #     inside_list = []
-    #     shell_list = []
-    #     inside_count = 0
-    #     shell_count = 0
-    #     for point in inside_shell_points:
-    #         if np.linalg.norm(collision_free_points[point] - center) <=  radius:
-    #             obstacles_neighbor_dist = collision_kd_tree.query(center, 1)[0]
-    #             if obstacles_neighbor_dist >= radius:
-    #                 available_points.discard(point)
-    #                 if point in center_list:
-    #                     center_exist_idx = center_list.index(point)
-    #                     center_list.pop(center_exist_idx)
-    #                     radius_list.pop(center_exist_idx)
-    #                     inside_list_list.pop(center_exist_idx)
-    #                     shell_radius_list.pop(center_exist_idx)
-    #                     weight_simple_list.pop(center_exist_idx)
-    #                     weight_gaussian_list.pop(center_exist_idx)
-    #                     weight_simple_gaussian_list.pop(center_exist_idx)
-    #             inside_count += 1        
-    #             inside_list.append(point)
-    #         else:
-    #             shell_count += 1
-    #             shell_list.append(point)
-        
-    #     center_list.append(idx)
-    #     radius_list.append(radius)
-    #     shell_radius_list.append(shell_radius)
-    #     inside_list_list.append(inside_list)
-    #     weight_simple = calculate_weight_simple(center, radius, shell_radius, obstacles_neighbors, inside_list, shell_list)
-    #     weight_gaussian = calculate_weight_gaussian(center, radius, shell_radius, obstacles_neighbors, inside_list, shell_list, collision_free_points, collision_points, free_kd_tree, collision_kd_tree)
-    #     weight_simple_gaussian = calculate_weight_simple_gaussian(center, radius, shell_radius, obstacles_neighbors, inside_list, shell_list)
-    #     weight_simple_list.append(weight_simple)
-    #     weight_gaussian_list.append(weight_gaussian)
-    #     weight_simple_gaussian_list.append(weight_simple_gaussian)
         
         # Check if all nearest points of the seed point are covered
     
     return collision_free_points[center_list], radius_list, shell_radius_list, deviation_list, weight_simple_list, weight_gaussian_list, weight_simple_gaussian_list
 
 def sample_points_from_sphere_gaussian(obstacles, center_list, radius_list, shell_radius_list, weight_gaussian_list, map_size, num_samples=100):
-    probabilities = softmax(weight_gaussian_list)
-    # probabilities = weight_gaussian_list / np.sum(weight_gaussian_list)
+    # probabilities = softmax(weight_gaussian_list)
+    probabilities = weight_gaussian_list / np.sum(weight_gaussian_list)
 
 
     sample_points = []
@@ -422,19 +462,21 @@ if __name__ == "__main__":
     obstacles = obstacles_1
     #set_random_seed(88129)
     set_random_seed(81522)
-    #set_random_seed(97612)
-    #set_random_seed(36397)
+    # set_random_seed(97612)
+    # set_random_seed(43100)
     
     num_points = 100  # Number of points to sample
     map_size = [1.0, 1.0]  # Define map size [dim_1_max ~ dim_n_max]
     
     collision_free_points, collision_points = sample_points(num_points, map_size, obstacles)
+
     
     center_list, radius_list, shell_radius_list, deviation_list, weight_simple_list, weight_gaussian_list, weight_simple_gaussian_list = construct_spheres(collision_free_points, collision_points, map_size)
     
     plot_circles(obstacles, collision_free_points, collision_points, center_list, radius_list, shell_radius_list)
+    # plt.show()
     
-    new_samples_gaussian = sample_points_from_sphere_gaussian(obstacles, center_list + deviation_list, radius_list, shell_radius_list, weight_simple_list, map_size)
+    new_samples_gaussian = sample_points_from_sphere_gaussian(obstacles, center_list + np.array(deviation_list), radius_list, shell_radius_list, weight_simple_list, map_size)
     new_samples_uniform_sphere = sample_points_from_sphere_uniform(obstacles, center_list + deviation_list, radius_list, shell_radius_list, weight_simple_list, map_size)
     new_samples_uniform, _ = sample_points(100, map_size, obstacles)
     #print(new_samples)

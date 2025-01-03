@@ -1,4 +1,5 @@
 import scipy.stats as stats
+import numpy as np
 coverage_1 = stats.chi2.cdf(1, 1)
 coverage_2 = stats.chi2.cdf(4, 1)
 print(coverage_1)
@@ -19,7 +20,6 @@ def calculate_variance(dimensions, radius, coverage = stats.chi2.cdf(4, 1)):
     variance = (radius ** 2) / chi_square_value
     return variance
 
-print(stats.chi2.ppf(coverage_1, 2))
-print(stats.chi2.ppf(coverage_2, 2))
+print(np.log(0.5))
 
-print(calculate_variance(1, 2))
+print(-(0.5 * np.log(0.5) + 0.5 * np.log(0.5)))

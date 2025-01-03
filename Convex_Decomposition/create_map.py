@@ -50,6 +50,81 @@ obstacles_1 = {
     }
 }
 
+obstacles_2 = {
+    'rectangle1': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.1, 0.0]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle2': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.1, 0.255]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle3': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.1, 0.51]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle4': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.1, 0.765]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle5': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.4, 0.0]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle6': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.4, 0.255]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle7': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.4, 0.51]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle8': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.4, 0.765]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle9': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.7, 0.0]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle10': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.7, 0.255]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle11': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.7, 0.51]),
+        'width': 0.2,
+        'height': 0.235
+    },
+    'rectangle12': {
+        'type': 'rectangle',
+        'bottom_left': np.array([0.7, 0.765]),
+        'width': 0.2,
+        'height': 0.235
+    },
+}
+
 # Function to plot obstacles on the map
 def plot_obstacles(obstacles, fig = None, ax=None):
     if fig is None or ax is None:
